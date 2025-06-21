@@ -264,7 +264,7 @@ dependencies {
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **Frame Rate** | 15-20 FPS | Tested on mid-range Android devices |
+| **Frame Rate** | 25-50 FPS | Tested on mid-range Android devices |
 | **Processing Time** | 8-12ms | Per frame OpenCV processing |
 | **Memory Usage** | ~50-80MB | Including OpenCV and OpenGL buffers |
 | **Supported Resolutions** | 640x480 to 1920x1080 | Scales with device capability |
