@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string-array name="render_modes">
+        <item>Raw Camera</item>
+        <item>Edge Detection</item>
+        <item>Grayscale</item>
         <item>Default</item>
         <item>Inset</item>
         <item>Border Fix</item>

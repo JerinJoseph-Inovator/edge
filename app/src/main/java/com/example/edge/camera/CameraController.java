@@ -11,8 +11,10 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
 import android.util.Size;
+import android.view.Display;
 import android.view.Surface;
 import android.view.TextureView;
+import android.view.WindowManager;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -31,6 +33,8 @@ public class CameraController {
     private ImageReader imageReader;
 
     private Size selectedSize;
+    private int sensorOrientation;
+    private int displayRotation;
 
     public interface FrameCallback {
         void onFrameAvailable(byte[] frameData, int width, int height);
@@ -55,7 +59,9 @@ public class CameraController {
                     initializeCamera();
                 }
 
-                @Override public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {}
+                @Override public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+                    configureTransform(width, height);
+                }
                 @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) { return false; }
                 @Override public void onSurfaceTextureUpdated(SurfaceTexture surface) {}
             });
@@ -73,6 +79,17 @@ public class CameraController {
             String cameraId = manager.getCameraIdList()[0];
 
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+
+            // Get sensor orientation
+            sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+            Log.i(TAG, "📐 Camera sensor orientation: " + sensorOrientation);
+
+            // Get display rotation
+            WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+            Display display = windowManager.getDefaultDisplay();
+            displayRotation = display.getRotation();
+            Log.i(TAG, "📱 Display rotation: " + displayRotation);
+
             Size[] sizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
                     .getOutputSizes(ImageFormat.YUV_420_888);
 
@@ -111,8 +128,12 @@ public class CameraController {
 
                     Log.d(TAG, "✅ JNI processFrame called with size: " + image.getWidth() + "x" + image.getHeight());
 
-                    // Send to native processing
-                    com.example.edge.nativebridge.NativeBridge.processFrame(nv21, image.getWidth(), image.getHeight());
+                    // Calculate rotation needed
+                    int rotation = getRotationCompensation();
+                    Log.d(TAG, "🔄 Applying rotation compensation: " + rotation + "°");
+
+                    // Send to native processing with rotation info
+                    com.example.edge.nativebridge.NativeBridge.processFrameWithRotation(nv21, image.getWidth(), image.getHeight(), rotation);
 
                     // Callback to UI if needed
                     if (callback != null) {
@@ -167,7 +188,12 @@ public class CameraController {
                 return;
             }
 
+            // Configure the size of default buffer to be the size of camera preview we want
             texture.setDefaultBufferSize(selectedSize.getWidth(), selectedSize.getHeight());
+
+            // Configure transform matrix for proper orientation
+            configureTransform(textureView.getWidth(), textureView.getHeight());
+
             Surface previewSurface = new Surface(texture);
             Surface processingSurface = imageReader.getSurface();
 
@@ -196,6 +222,64 @@ public class CameraController {
         } catch (CameraAccessException e) {
             Log.e(TAG, "❌ CameraAccessException during preview setup: " + e.getMessage());
         }
+    }
+
+    /**
+     * Configure the transform matrix for the TextureView to account for orientation
+     */
+    private void configureTransform(int viewWidth, int viewHeight) {
+        if (null == textureView || null == selectedSize) {
+            return;
+        }
+
+        int rotation = getRotationCompensation();
+        android.graphics.Matrix matrix = new android.graphics.Matrix();
+        android.graphics.RectF viewRect = new android.graphics.RectF(0, 0, viewWidth, viewHeight);
+        android.graphics.RectF bufferRect = new android.graphics.RectF(0, 0, selectedSize.getHeight(), selectedSize.getWidth());
+        float centerX = viewRect.centerX();
+        float centerY = viewRect.centerY();
+
+        if (Surface.ROTATION_90 == displayRotation || Surface.ROTATION_270 == displayRotation) {
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
+            matrix.setRectToRect(viewRect, bufferRect, android.graphics.Matrix.ScaleToFit.FILL);
+            float scale = Math.max(
+                    (float) viewHeight / selectedSize.getHeight(),
+                    (float) viewWidth / selectedSize.getWidth());
+            matrix.postScale(scale, scale, centerX, centerY);
+            matrix.postRotate(90 * (displayRotation - 2), centerX, centerY);
+        } else if (Surface.ROTATION_180 == displayRotation) {
+            matrix.postRotate(180, centerX, centerY);
+        }
+
+        textureView.setTransform(matrix);
+        Log.i(TAG, "🔄 Transform matrix configured for rotation: " + rotation + "°");
+    }
+
+    /**
+     * Calculate the rotation compensation needed
+     */
+    private int getRotationCompensation() {
+        // Get the device's current rotation relative to its "native" orientation.
+        int deviceRotation = displayRotation;
+        int rotationCompensation = 0;
+
+        // Calculate the camera rotation relative to the device's "native" orientation.
+        switch (deviceRotation) {
+            case Surface.ROTATION_0:
+                rotationCompensation = sensorOrientation;
+                break;
+            case Surface.ROTATION_90:
+                rotationCompensation = (sensorOrientation - 90 + 360) % 360;
+                break;
+            case Surface.ROTATION_180:
+                rotationCompensation = (sensorOrientation - 180 + 360) % 360;
+                break;
+            case Surface.ROTATION_270:
+                rotationCompensation = (sensorOrientation - 270 + 360) % 360;
+                break;
+        }
+
+        return rotationCompensation;
     }
 
     public void stopCamera() {

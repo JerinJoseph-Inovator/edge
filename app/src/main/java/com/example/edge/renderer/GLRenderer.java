@@ -14,14 +14,26 @@ public class GLRenderer extends GLSurfaceView implements GLSurfaceView.Renderer 
 
     private static final String TAG = "OpenGLRenderer";
 
+    // Updated enum to include content switching (assignment requirement)
     public enum RenderModeOption {
-        DEFAULT,
+        RAW_CAMERA,      // Show original camera feed
+        EDGE_DETECTION,  // Show processed OpenCV output (your current black/white)
+        GRAYSCALE,       // Optional: grayscale version
+        DEFAULT,         // Keep your original for compatibility
         INSET,
         BORDER_FIX
     }
 
-    private RenderModeOption renderMode = RenderModeOption.DEFAULT;
+    // ORIENTATION FIX: Orientation constants
+    public static final int ORIENTATION_NORMAL = 0;
+    public static final int ORIENTATION_FLIPPED_V = 1;      // Most common fix for upside-down
+    public static final int ORIENTATION_ROTATED_90 = 2;     // 90° clockwise
+    public static final int ORIENTATION_ROTATED_180 = 3;    // 180° rotation
+    public static final int ORIENTATION_ROTATED_270 = 4;    // 90° counter-clockwise
+
+    private RenderModeOption renderMode = RenderModeOption.EDGE_DETECTION; // Start with processed
     private boolean useLinearFilter = false;
+    private int currentOrientation = ORIENTATION_FLIPPED_V; // Start with most common fix
 
     public GLRenderer(Context context) {
         super(context);
@@ -44,7 +56,7 @@ public class GLRenderer extends GLSurfaceView implements GLSurfaceView.Renderer 
         setRenderer(this);
         setRenderMode(RENDERMODE_CONTINUOUSLY);
 
-        Log.i(TAG, "GLRenderer initialized");
+        Log.i(TAG, "GLRenderer initialized with orientation support");
     }
 
     @Override
@@ -57,6 +69,10 @@ public class GLRenderer extends GLSurfaceView implements GLSurfaceView.Renderer 
             Log.i(TAG, "Using NEAREST filter");
             initGLNative();
         }
+
+        // ORIENTATION FIX: Apply orientation after GL initialization
+        setOrientationNative(currentOrientation);
+        Log.i(TAG, "Applied orientation: " + getOrientationName(currentOrientation));
     }
 
     @Override
@@ -68,29 +84,48 @@ public class GLRenderer extends GLSurfaceView implements GLSurfaceView.Renderer 
 
     @Override
     public void onDrawFrame(GL10 gl) {
-        GLES20.glClearColor(1f, 0f, 0f, 1f);
+        GLES20.glClearColor(0f, 0f, 0f, 1f); // Black background
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
+        // FIXED: Set the render mode BEFORE calling the render function
+        setRenderModeNative(renderMode.ordinal());
+
         switch (renderMode) {
+            case RAW_CAMERA:
+                Log.d(TAG, "Rendering: RAW_CAMERA mode");
+                renderFrameNative(); // Use your existing OpenGL renderer
+                break;
+            case EDGE_DETECTION:
+                Log.d(TAG, "Rendering: EDGE_DETECTION mode");
+                renderFrameNative(); // Use your existing OpenGL renderer
+                break;
+            case GRAYSCALE:
+                Log.d(TAG, "Rendering: GRAYSCALE mode");
+                renderFrameNative(); // Use your existing OpenGL renderer
+                break;
             case INSET:
-                Log.i(TAG, "Rendering: INSET mode");
-                renderFrameInsetNative();
+                Log.d(TAG, "Rendering: INSET mode");
+                renderFrameInsetNative(); // Use your existing inset renderer
                 break;
             case BORDER_FIX:
-                Log.i(TAG, "Rendering: BORDER_FIX mode");
-                renderFrameBorderFixNative();
+                Log.d(TAG, "Rendering: BORDER_FIX mode");
+                renderFrameBorderFixNative(); // Use your existing border fix renderer
                 break;
             case DEFAULT:
             default:
-                Log.i(TAG, "Rendering: DEFAULT mode");
-                renderFrameNative();
+                Log.d(TAG, "Rendering: DEFAULT mode");
+                renderFrameNative(); // Use your existing OpenGL renderer
                 break;
         }
     }
 
     public void setRenderModeOption(RenderModeOption mode) {
         this.renderMode = mode;
-        Log.i(TAG, "Render mode changed to: " + mode);
+        Log.i(TAG, "🔄 Render mode changed to: " + mode);
+    }
+
+    public RenderModeOption getCurrentRenderMode() {
+        return renderMode;
     }
 
     public void setUseLinearFilter(boolean useLinear) {
@@ -98,12 +133,68 @@ public class GLRenderer extends GLSurfaceView implements GLSurfaceView.Renderer 
         Log.i(TAG, "Texture filter changed to: " + (useLinear ? "LINEAR" : "NEAREST"));
     }
 
+    // ORIENTATION FIX: New methods to control orientation
+    public void setOrientation(int orientation) {
+        this.currentOrientation = orientation;
+        setOrientationNative(orientation);
+        Log.i(TAG, "🔄 Orientation changed to: " + getOrientationName(orientation));
+    }
+
+    public int getCurrentOrientation() {
+        return currentOrientation;
+    }
+
+    // Helper method to cycle through orientations for testing
+    public void cycleOrientation() {
+        currentOrientation = (currentOrientation + 1) % 5;
+        setOrientationNative(currentOrientation);
+        Log.i(TAG, "🔄 Cycled to orientation: " + getOrientationName(currentOrientation));
+    }
+
+    // Helper method to get orientation name for logging
+    private String getOrientationName(int orientation) {
+        switch (orientation) {
+            case ORIENTATION_NORMAL: return "NORMAL";
+            case ORIENTATION_FLIPPED_V: return "FLIPPED_V";
+            case ORIENTATION_ROTATED_90: return "ROTATED_90";
+            case ORIENTATION_ROTATED_180: return "ROTATED_180";
+            case ORIENTATION_ROTATED_270: return "ROTATED_270";
+            default: return "UNKNOWN";
+        }
+    }
+
+    // Quick fix methods for common issues
+    public void fixUpsideDown() {
+        setOrientation(ORIENTATION_FLIPPED_V);
+        Log.i(TAG, "🔧 Applied upside-down fix");
+    }
+
+    public void rotate180() {
+        setOrientation(ORIENTATION_ROTATED_180);
+        Log.i(TAG, "🔧 Applied 180° rotation");
+    }
+
+    public void rotate90Clockwise() {
+        setOrientation(ORIENTATION_ROTATED_90);
+        Log.i(TAG, "🔧 Applied 90° clockwise rotation");
+    }
+
+    public void rotate90CounterClockwise() {
+        setOrientation(ORIENTATION_ROTATED_270);
+        Log.i(TAG, "🔧 Applied 90° counter-clockwise rotation");
+    }
+
+    public void resetOrientation() {
+        setOrientation(ORIENTATION_NORMAL);
+        Log.i(TAG, "🔧 Reset to normal orientation");
+    }
+
     public void cleanup() {
         Log.i(TAG, "Cleaning up GL resources");
         cleanupGLNative();
     }
 
-    // JNI bindings
+    // JNI bindings - FIXED: Using your actual function names from opengl_renderer.cpp
     private native void initGLNative();
     private native void initGLLinearNative();
     private native void resizeGLNative(int width, int height);
@@ -111,6 +202,8 @@ public class GLRenderer extends GLSurfaceView implements GLSurfaceView.Renderer 
     private native void renderFrameInsetNative();
     private native void renderFrameBorderFixNative();
     private native void cleanupGLNative();
+    private native void setRenderModeNative(int mode); // Tell native which content to render
+    private native void setOrientationNative(int orientation); // NEW: Set orientation
 
     static {
         try {

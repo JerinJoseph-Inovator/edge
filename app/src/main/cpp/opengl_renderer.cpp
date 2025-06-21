@@ -21,26 +21,63 @@ static int texWidth = 1024, texHeight = 512;
 // Pre-allocated upload buffer
 static std::vector<uint8_t> pixelBuffer;
 
-// CRITICAL FIX #1: Adjust texture coordinates to avoid edge sampling artifacts
-// Instead of 0.0-1.0, use slightly inset coordinates to avoid boundary issues
-static const GLfloat vertices[] = {
-        // Position     // Texture coords (slightly inset to avoid edge artifacts)
+// ORIENTATION FIX: Different vertex arrays for different orientations
+// Normal orientation (portrait, no rotation needed)
+static const GLfloat verticesNormal[] = {
+        // Position     // Texture coords
         -1.0f, -1.0f,   0.0f, 0.0f,    // Bottom-left
         1.0f, -1.0f,   1.0f, 0.0f,    // Bottom-right
         -1.0f,  1.0f,   0.0f, 1.0f,    // Top-left
         1.0f,  1.0f,   1.0f, 1.0f     // Top-right
 };
 
-// Alternative: Inset texture coordinates to avoid edge sampling
-static const GLfloat verticesInset[] = {
-        // Position     // Texture coords (inset by half pixel)
-        -1.0f, -1.0f,   0.5f/1024.0f, 0.5f/512.0f,          // Bottom-left
-        1.0f, -1.0f,   (1024.0f-0.5f)/1024.0f, 0.5f/512.0f, // Bottom-right
-        -1.0f,  1.0f,   0.5f/1024.0f, (512.0f-0.5f)/512.0f,  // Top-left
-        1.0f,  1.0f,   (1024.0f-0.5f)/1024.0f, (512.0f-0.5f)/512.0f // Top-right
+// Flipped vertically (fixes upside-down camera)
+static const GLfloat verticesFlippedV[] = {
+        // Position     // Texture coords (V flipped)
+        -1.0f, -1.0f,   0.0f, 1.0f,    // Bottom-left -> Top-left of texture
+        1.0f, -1.0f,   1.0f, 1.0f,    // Bottom-right -> Top-right of texture
+        -1.0f,  1.0f,   0.0f, 0.0f,    // Top-left -> Bottom-left of texture
+        1.0f,  1.0f,   1.0f, 0.0f     // Top-right -> Bottom-right of texture
 };
 
-// Simple passthrough shaders with high precision
+// Rotated 90 degrees clockwise
+static const GLfloat verticesRotated90[] = {
+        // Position     // Texture coords (90° CW rotation)
+        -1.0f, -1.0f,   1.0f, 0.0f,    // Bottom-left -> Bottom-right of texture
+        1.0f, -1.0f,   1.0f, 1.0f,    // Bottom-right -> Top-right of texture
+        -1.0f,  1.0f,   0.0f, 0.0f,    // Top-left -> Bottom-left of texture
+        1.0f,  1.0f,   0.0f, 1.0f     // Top-right -> Top-left of texture
+};
+
+// Rotated 180 degrees
+static const GLfloat verticesRotated180[] = {
+        // Position     // Texture coords (180° rotation)
+        -1.0f, -1.0f,   1.0f, 1.0f,    // Bottom-left -> Top-right of texture
+        1.0f, -1.0f,   0.0f, 1.0f,    // Bottom-right -> Top-left of texture
+        -1.0f,  1.0f,   1.0f, 0.0f,    // Top-left -> Bottom-right of texture
+        1.0f,  1.0f,   0.0f, 0.0f     // Top-right -> Bottom-left of texture
+};
+
+// Rotated 270 degrees clockwise (or 90 CCW)
+static const GLfloat verticesRotated270[] = {
+        // Position     // Texture coords (270° CW rotation)
+        -1.0f, -1.0f,   0.0f, 1.0f,    // Bottom-left -> Top-left of texture
+        1.0f, -1.0f,   0.0f, 0.0f,    // Bottom-right -> Bottom-left of texture
+        -1.0f,  1.0f,   1.0f, 1.0f,    // Top-left -> Top-right of texture
+        1.0f,  1.0f,   1.0f, 0.0f     // Top-right -> Bottom-right of texture
+};
+
+// Current orientation setting
+enum class Orientation {
+    NORMAL = 0,
+    FLIPPED_V = 1,
+    ROTATED_90 = 2,
+    ROTATED_180 = 3,
+    ROTATED_270 = 4
+};
+
+static Orientation currentOrientation = Orientation::FLIPPED_V; // Start with flipped (most common fix)
+
 const char* vertexShaderSrc = R"(
 attribute vec2 a_Position;
 attribute vec2 a_TexCoord;
@@ -57,17 +94,6 @@ varying highp vec2 v_TexCoord;
 uniform sampler2D u_Texture;
 void main() {
     gl_FragColor = texture2D(u_Texture, v_TexCoord);
-}
-)";
-
-// Debug: Alternative fragment shader for testing
-const char* fragmentShaderDebugSrc = R"(
-precision highp float;
-varying highp vec2 v_TexCoord;
-uniform sampler2D u_Texture;
-void main() {
-    // Sample with explicit LOD to avoid mipmap issues
-    gl_FragColor = texture2D(u_Texture, v_TexCoord, 0.0);
 }
 )";
 
@@ -94,12 +120,22 @@ static GLuint compileShader(GLenum type, const char* src) {
     return s;
 }
 
+// Helper function to get the right vertices for current orientation
+static const GLfloat* getCurrentVertices() {
+    switch (currentOrientation) {
+        case Orientation::NORMAL: return verticesNormal;
+        case Orientation::FLIPPED_V: return verticesFlippedV;
+        case Orientation::ROTATED_90: return verticesRotated90;
+        case Orientation::ROTATED_180: return verticesRotated180;
+        case Orientation::ROTATED_270: return verticesRotated270;
+        default: return verticesFlippedV;
+    }
+}
+
 void initGL() {
-    // CRITICAL FIX #2: Disable dithering which can cause line artifacts
     glDisable(GL_DITHER);
     checkGLError("disable dither");
 
-    // Compile & link program
     GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
     GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
 
@@ -144,9 +180,8 @@ void initGL() {
     glBindTexture(GL_TEXTURE_2D, textureId);
     checkGLError("glBindTexture");
 
-    // CRITICAL FIX #3: Try NEAREST filtering to eliminate interpolation artifacts
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     checkGLError("texture parameters");
@@ -160,56 +195,7 @@ void initGL() {
     pixelBuffer.resize(texWidth * texHeight * 4);
     std::fill(pixelBuffer.begin(), pixelBuffer.end(), 0);
 
-    LOGI("initGL complete: NEAREST filtering, dithering disabled");
-}
-
-void initGLLinear() {
-    // Alternative init with LINEAR filtering for comparison
-    glDisable(GL_DITHER);
-
-    GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
-    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
-
-    if (vs == 0 || fs == 0) return;
-
-    program = glCreateProgram();
-    glAttachShader(program, vs);
-    glAttachShader(program, fs);
-    glLinkProgram(program);
-
-    GLint linked = 0;
-    glGetProgramiv(program, GL_LINK_STATUS, &linked);
-    if (!linked) {
-        char buf[512];
-        glGetProgramInfoLog(program, 512, nullptr, buf);
-        LOGE("Program link error: %s", buf);
-        return;
-    }
-
-    glDeleteShader(vs);
-    glDeleteShader(fs);
-    glUseProgram(program);
-
-    posLoc     = glGetAttribLocation(program, "a_Position");
-    texLoc     = glGetAttribLocation(program, "a_TexCoord");
-    samplerLoc = glGetUniformLocation(program, "u_Texture");
-
-    glGenTextures(1, &textureId);
-    glBindTexture(GL_TEXTURE_2D, textureId);
-
-    // LINEAR filtering with careful setup
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texWidth, texHeight, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-
-    pixelBuffer.resize(texWidth * texHeight * 4);
-    std::fill(pixelBuffer.begin(), pixelBuffer.end(), 0);
-
-    LOGI("initGLLinear complete: LINEAR filtering");
+    LOGI("initGL complete with orientation support");
 }
 
 void resizeGL(int width, int height) {
@@ -217,145 +203,28 @@ void resizeGL(int width, int height) {
     checkGLError("glViewport");
 }
 
-// CRITICAL FIX #4: Alternative rendering with inset texture coordinates
-void renderGLInset() {
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    cv::Mat frame = getLatestFrameForRender();
-    if (frame.empty()) return;
-
-    // Process frame
-    cv::Mat rgba;
-    switch (frame.channels()) {
-        case 1: cv::cvtColor(frame, rgba, cv::COLOR_GRAY2RGBA); break;
-        case 3: cv::cvtColor(frame, rgba, cv::COLOR_BGR2RGBA); break;
-        case 4: frame.copyTo(rgba); break;
-        default: return;
-    }
-
-    if (!rgba.isContinuous()) {
-        rgba = rgba.clone();
-    }
-
-    if (rgba.cols != texWidth || rgba.rows != texHeight) {
-        cv::resize(rgba, rgba, cv::Size(texWidth, texHeight));
-    }
-
-    // Upload texture
-    glBindTexture(GL_TEXTURE_2D, textureId);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, rgba.cols, rgba.rows,
-                    GL_RGBA, GL_UNSIGNED_BYTE, rgba.data);
-    checkGLError("texture upload");
-
-    // Render with inset coordinates
-    glUseProgram(program);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, textureId);
-    glUniform1i(samplerLoc, 0);
-
-    glEnableVertexAttribArray(posLoc);
-    glEnableVertexAttribArray(texLoc);
-
-    // Use inset vertices to avoid edge sampling
-    glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), verticesInset);
-    glVertexAttribPointer(texLoc, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), verticesInset+2);
-
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    checkGLError("draw arrays");
-
-    glDisableVertexAttribArray(posLoc);
-    glDisableVertexAttribArray(texLoc);
-}
-
-// CRITICAL FIX #5: Clear texture borders to black before upload
-void renderGLBorderFix() {
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    cv::Mat frame = getLatestFrameForRender();
-    if (frame.empty()) return;
-
-    cv::Mat rgba;
-    switch (frame.channels()) {
-        case 1: cv::cvtColor(frame, rgba, cv::COLOR_GRAY2RGBA); break;
-        case 3: cv::cvtColor(frame, rgba, cv::COLOR_BGR2RGBA); break;
-        case 4: frame.copyTo(rgba); break;
-        default: return;
-    }
-
-    if (!rgba.isContinuous()) {
-        rgba = rgba.clone();
-    }
-
-    if (rgba.cols != texWidth || rgba.rows != texHeight) {
-        cv::resize(rgba, rgba, cv::Size(texWidth, texHeight));
-    }
-
-    // CRITICAL: Clear border pixels to black to prevent edge artifacts
-    // Top and bottom rows
-    cv::rectangle(rgba, cv::Rect(0, 0, rgba.cols, 1), cv::Scalar(0,0,0,255), -1);
-    cv::rectangle(rgba, cv::Rect(0, rgba.rows-1, rgba.cols, 1), cv::Scalar(0,0,0,255), -1);
-    // Left and right columns
-    cv::rectangle(rgba, cv::Rect(0, 0, 1, rgba.rows), cv::Scalar(0,0,0,255), -1);
-    cv::rectangle(rgba, cv::Rect(rgba.cols-1, 0, 1, rgba.rows), cv::Scalar(0,0,0,255), -1);
-
-    // Upload and render
-    glBindTexture(GL_TEXTURE_2D, textureId);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, rgba.cols, rgba.rows,
-                    GL_RGBA, GL_UNSIGNED_BYTE, rgba.data);
-
-    glUseProgram(program);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, textureId);
-    glUniform1i(samplerLoc, 0);
-
-    glEnableVertexAttribArray(posLoc);
-    glEnableVertexAttribArray(texLoc);
-    glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), vertices);
-    glVertexAttribPointer(texLoc, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), vertices+2);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glDisableVertexAttribArray(posLoc);
-    glDisableVertexAttribArray(texLoc);
-}
-
-// Original render function (now with debug info)
-// Replace your renderGL() function with this crash-safe version
-
+// Main render function with orientation support
 void renderGL() {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // CRITICAL FIX: Wrap frame access in try-catch
     cv::Mat frame;
     try {
         frame = getLatestFrameForRender();
         if (frame.empty()) {
-            LOGI("Empty frame received - skipping render");
             return;
         }
     } catch (const std::exception& e) {
-        LOGE("❌ Exception getting frame: %s", e.what());
-        return;
-    } catch (...) {
-        LOGE("❌ Unknown exception getting frame");
+        LOGE("Exception getting frame: %s", e.what());
         return;
     }
 
-    // CRITICAL FIX: Validate frame data before processing
-    if (frame.data == nullptr) {
-        LOGE("❌ Frame data is null");
+    if (frame.data == nullptr || frame.cols <= 0 || frame.rows <= 0) {
+        LOGE("Invalid frame data");
         return;
     }
 
-    if (frame.cols <= 0 || frame.rows <= 0) {
-        LOGE("❌ Invalid frame dimensions: %dx%d", frame.cols, frame.rows);
-        return;
-    }
-
-    // Step 1: Convert to RGBA (OpenGL expects 4 channels)
+    // Convert to RGBA
     cv::Mat rgba;
     try {
         switch (frame.channels()) {
@@ -373,92 +242,36 @@ void renderGL() {
                 return;
         }
     } catch (const cv::Exception& e) {
-        LOGE("❌ OpenCV color conversion failed: %s", e.what());
+        LOGE("OpenCV color conversion failed: %s", e.what());
         return;
     }
 
-    // Step 2: Make continuous (required by OpenGL)
     if (!rgba.isContinuous()) {
-        try {
-            rgba = rgba.clone();
-        } catch (const std::exception& e) {
-            LOGE("❌ Failed to clone RGBA frame: %s", e.what());
-            return;
-        }
+        rgba = rgba.clone();
     }
 
-    // Step 3: Resize to texture size
     if (rgba.cols != texWidth || rgba.rows != texHeight) {
-        try {
-            cv::resize(rgba, rgba, cv::Size(texWidth, texHeight));
-        } catch (const cv::Exception& e) {
-            LOGE("❌ OpenCV resize failed: %s", e.what());
-            return;
-        }
+        cv::resize(rgba, rgba, cv::Size(texWidth, texHeight));
     }
 
-    // CRITICAL FIX: Validate RGBA data
-    if (rgba.data == nullptr) {
-        LOGE("❌ RGBA data is null after processing");
-        return;
-    }
-
-    // Step 4: Safe upload to GPU
-    size_t actualBytes = rgba.total() * rgba.elemSize();
-    size_t expectedBytes = texWidth * texHeight * 4;
-
-    if (actualBytes != expectedBytes) {
-        LOGE("Size mismatch: got %zu, expected %zu", actualBytes, expectedBytes);
-        return;
-    }
-
-    // CRITICAL FIX: Ensure pixel buffer is properly sized
-    if (pixelBuffer.size() != expectedBytes) {
-        LOGE("❌ Pixel buffer size mismatch: %zu vs %zu", pixelBuffer.size(), expectedBytes);
-        try {
-            pixelBuffer.resize(expectedBytes);
-        } catch (const std::exception& e) {
-            LOGE("❌ Failed to resize pixel buffer: %s", e.what());
-            return;
-        }
-    }
-
-    // CRITICAL FIX: Safe memory copy with bounds checking
-    try {
-        if (actualBytes <= pixelBuffer.size()) {
-            std::memcpy(pixelBuffer.data(), rgba.data, actualBytes);
-        } else {
-            LOGE("❌ Buffer overflow prevented: %zu > %zu", actualBytes, pixelBuffer.size());
-            return;
-        }
-    } catch (const std::exception& e) {
-        LOGE("❌ Memory copy failed: %s", e.what());
-        return;
-    }
-
-    // Step 5: OpenGL operations with error checking
+    // Upload texture
     glBindTexture(GL_TEXTURE_2D, textureId);
-    checkGLError("bind texture");
-
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    checkGLError("pixel store");
-
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, texWidth, texHeight,
-                    GL_RGBA, GL_UNSIGNED_BYTE, pixelBuffer.data());
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, rgba.cols, rgba.rows,
+                    GL_RGBA, GL_UNSIGNED_BYTE, rgba.data);
     checkGLError("texture upload");
 
-    // Step 6: Render
+    // Render with correct orientation
     glUseProgram(program);
-    checkGLError("use program");
-
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, textureId);
     glUniform1i(samplerLoc, 0);
-    checkGLError("bind sampler");
 
     glEnableVertexAttribArray(posLoc);
     glEnableVertexAttribArray(texLoc);
 
+    // Use vertices based on current orientation
+    const GLfloat* vertices = getCurrentVertices();
     glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), vertices);
     glVertexAttribPointer(texLoc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), vertices + 2);
 
@@ -467,8 +280,12 @@ void renderGL() {
 
     glDisableVertexAttribArray(posLoc);
     glDisableVertexAttribArray(texLoc);
+}
 
-    // LOGI("✅ Frame rendered successfully");
+// Function to set orientation from Java
+void setOrientation(int orientation) {
+    currentOrientation = static_cast<Orientation>(orientation);
+    LOGI("Orientation set to: %d", orientation);
 }
 
 void cleanupGL() {
@@ -485,14 +302,12 @@ void cleanupGL() {
     LOGI("OpenGL cleanup complete");
 }
 
+// JNI exports
 #include <jni.h>
 extern "C" {
-JNIEXPORT void JNICALL Java_com_example_edge_renderer_GLRenderer_initGLNative(JNIEnv*, jobject) {
-    initGL(); // NEAREST filtering, dithering disabled
-}
 
-JNIEXPORT void JNICALL Java_com_example_edge_renderer_GLRenderer_initGLLinearNative(JNIEnv*, jobject) {
-    initGLLinear(); // LINEAR filtering for comparison
+JNIEXPORT void JNICALL Java_com_example_edge_renderer_GLRenderer_initGLNative(JNIEnv*, jobject) {
+    initGL();
 }
 
 JNIEXPORT void JNICALL Java_com_example_edge_renderer_GLRenderer_resizeGLNative(JNIEnv*, jobject, jint w, jint h) {
@@ -500,18 +315,16 @@ JNIEXPORT void JNICALL Java_com_example_edge_renderer_GLRenderer_resizeGLNative(
 }
 
 JNIEXPORT void JNICALL Java_com_example_edge_renderer_GLRenderer_renderFrameNative(JNIEnv*, jobject) {
-    renderGL(); // Original method with debug
+    renderGL();
 }
 
-JNIEXPORT void JNICALL Java_com_example_edge_renderer_GLRenderer_renderFrameInsetNative(JNIEnv*, jobject) {
-    renderGLInset(); // Inset texture coordinates
-}
-
-JNIEXPORT void JNICALL Java_com_example_edge_renderer_GLRenderer_renderFrameBorderFixNative(JNIEnv*, jobject) {
-    renderGLBorderFix(); // Clear border pixels
+// NEW: Set orientation from Java
+JNIEXPORT void JNICALL Java_com_example_edge_renderer_GLRenderer_setOrientationNative(JNIEnv*, jobject, jint orientation) {
+    setOrientation(orientation);
 }
 
 JNIEXPORT void JNICALL Java_com_example_edge_renderer_GLRenderer_cleanupGLNative(JNIEnv*, jobject) {
     cleanupGL();
 }
+
 }
