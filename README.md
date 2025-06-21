@@ -127,47 +127,6 @@ Camera2 API → TextureView → NV21 YUV → JNI Bridge → OpenCV C++ → OpenG
    └── build.gradle
    ```
 
-### OpenCV Setup (REQUIRED)
-⚠️ **Important**: This project requires OpenCV Android SDK to be downloaded separately and added to your project.
-
-1. **Download OpenCV Android SDK**:
-   ```bash
-   # Download from https://opencv.org/releases/
-   wget https://github.com/opencv/opencv/releases/download/4.8.0/opencv-4.8.0-android-sdk.zip
-   ```
-   Or download directly from: https://opencv.org/releases/
-
-2. **Extract to your project ROOT directory**:
-   ```bash
-   unzip opencv-4.8.0-android-sdk.zip
-   # IMPORTANT: Place OpenCV-android-sdk folder in your project ROOT directory
-   # Your structure should look like:
-   # Edge/
-   # ├── OpenCV-android-sdk/
-   # ├── app/
-   # ├── build.gradle
-   # └── settings.gradle
-   ```
-
-3. **Verify CMakeLists.txt path**:
-   ```cmake
-   # This path assumes OpenCV-android-sdk is in project root
-   set(OpenCV_DIR "${CMAKE_SOURCE_DIR}/../../../../OpenCV-android-sdk/sdk/native/jni")
-   ```
-
-4. **Project structure with OpenCV**:
-   ```
-   Edge/                                    # Project root
-   ├── OpenCV-android-sdk/                 # ← ADD THIS FOLDER HERE
-   │   └── sdk/
-   │       ├── native/
-   │       │   └── jni/                    # CMake finds OpenCV here
-   │       └── java/
-   ├── app/
-   │   └── src/main/cpp/CMakeLists.txt     # References OpenCV path
-   └── build.gradle
-   ```
-
 ### Build Instructions
 ```bash
 # Clone the repository
@@ -338,7 +297,8 @@ dependencies {
 
 ## 🧑‍💻 Development Info
 
-**Author**: [Jerin Joseph Alour]  
+**Author**: Jerin Joseph Alour  
+**Portfolio**: jerin.cloud
 **Assessment**: RnD Intern - Android + OpenCV + OpenGL  
 **Duration**: 3 Days  
 **Tech Stack**: Android SDK, NDK, OpenCV 4.8.0, OpenGL ES 2.0, JNI  
