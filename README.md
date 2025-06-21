@@ -6,7 +6,7 @@ An Android application that captures camera frames, processes them using OpenCV 
 
 *Raw Camera Feed* | *Edge Detection* | *Grayscale Filter*
 :---:|:---:|:---:
-![Raw Camera](Screenshots/raw_camera.jpg) | ![Edge Detection](Screenshots/edge_detection.jpg) | ![Grayscale](Screenshots/Gayscale.jpg)
+![Raw Camera](Screenshot/raw_camera.jpg) | ![Edge Detection](Screenshot/edge_detection.jpg) | ![Grayscale](Screenshot/Gayscale.jpg)
 
 ## ✅ Features Implemented
 
