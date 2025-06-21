@@ -298,7 +298,7 @@ dependencies {
 ## 🧑‍💻 Development Info
 
 **Author**: Jerin Joseph Alour  
-**Portfolio**: jerin.cloud
+**Portfolio**: [Jerin-Portfolio](https://jerin.cloud)
 **Assessment**: RnD Intern - Android + OpenCV + OpenGL  
 **Duration**: 3 Days  
 **Tech Stack**: Android SDK, NDK, OpenCV 4.8.0, OpenGL ES 2.0, JNI  
