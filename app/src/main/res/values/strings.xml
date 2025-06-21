@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Edge</string>
+<!--    <string-array name="render_modes">-->
+<!--        <item>DEFAULT</item>-->
+<!--        <item>INSET</item>-->
+<!--        <item>BORDER_FIX</item>-->
+<!--    </string-array>-->
+</resources>
